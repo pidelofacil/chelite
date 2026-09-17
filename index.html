@@ -16,7 +16,6 @@
     }
 
     /* --- PANTALLA DE CARGA (LOADER CON FONDO BLANCO) --- */
-/* --- PANTALLA DE CARGA (LOADER CON FONDO BLANCO) --- */
     #pantalla-carga {
       position: fixed;
       top: 0;
@@ -31,13 +30,11 @@
       transition: opacity 0.5s ease, visibility 0.5s ease;
     }
 
-    /* Contenedor adaptativo amplio ajustado al borde de la pantalla */
     .loader-contenedor {
       position: relative;
-      /* Se adapta usando vmin para tomar casi toda la pantalla en pantallas cuadradas, horizontales o verticales */
       width: 80vmin; 
       height: 80vmin;
-      max-width: 600px;  /* Límite para pantallas muy grandes */
+      max-width: 600px;
       max-height: 600px;
       display: flex;
       justify-content: center;
@@ -45,21 +42,19 @@
       box-sizing: border-box;
     }
 
-    /* Anillo giratorio cerca del borde del contenedor */
     .loader-circulo {
       position: absolute;
       top: 0;
       left: 0;
       width: 100%;
       height: 100%;
-      border: 6px solid rgba(0, 0, 0, 0.06); /* Borde un poco más grueso para mantener proporción */
+      border: 6px solid rgba(0, 0, 0, 0.06);
       border-top: 6px solid #0d0d0d;
       border-radius: 50%;
       animation: girar 1s linear infinite;
       box-sizing: border-box;
     }
 
-    /* Logo aprovechando el espacio interno del círculo */
     .loader-svg {
       width: 75%;
       height: 75%;
@@ -71,7 +66,6 @@
       100% { transform: rotate(360deg); }
     }
 
-    /* Clase para desvanecer la pantalla de carga */
     #pantalla-carga.oculto {
       opacity: 0;
       visibility: hidden;
@@ -167,7 +161,7 @@ function obtenerIdDesdeUrl(url) {
   return match ? match[1] : null;
 }
 
-// Inyecta la regla @font-face y aplica la tipografía al CSS
+// Inyecta la regla @font-face y aplica la tipografía local
 function aplicarFontFace(nombreFamilia, nombreArchivo) {
   const extension = nombreArchivo.split('.').pop().toLowerCase();
   let format = 'truetype';
@@ -189,11 +183,10 @@ function aplicarFontFace(nombreFamilia, nombreArchivo) {
   return true;
 }
 
-// Escanea el directorio público en GitHub Pages para encontrar cualquier archivo que inicie con 'font-'
-function buscarFuenteDinamicaRepo() {
+// Escanea el directorio público en GitHub Pages para encontrar cualquier archivo local que inicie con 'font-'
+function buscarFuenteLocalRepo() {
   const pathSegments = window.location.pathname.split('/').filter(Boolean);
   
-  // Si estamos en GitHub Pages (ej: usuario.github.io/repositorio/)
   if (window.location.hostname.endsWith('github.io') && pathSegments.length > 0) {
     const owner = window.location.hostname.split('.')[0];
     const repo = pathSegments[0];
@@ -201,12 +194,11 @@ function buscarFuenteDinamicaRepo() {
 
     return fetch(githubApiUrl)
       .then(res => {
-        if (!res.ok) throw new Error('No se pudo acceder a la API de GitHub');
+        if (!res.ok) throw new Error('No se pudo acceder a la lista de archivos');
         return res.json();
       })
       .then(files => {
         if (Array.isArray(files)) {
-          // Busca dinámicamente cualquier archivo cuyo nombre empiece con 'font-'
           const fontFile = files.find(file => file.name.toLowerCase().startsWith('font-'));
           if (fontFile) {
             return aplicarFontFace('FuenteMenuDinamica', fontFile.name);
@@ -214,22 +206,16 @@ function buscarFuenteDinamicaRepo() {
         }
         return false;
       })
-      .catch(err => {
-        console.warn('Búsqueda por API de GitHub omitida o con error:', err);
-        return false;
-      });
+      .catch(() => false);
   }
 
-  // Si estás trabajando en un entorno local de pruebas (localhost), probamos cargar extensiones comunes de 'font-'
+  // Pruebas locales
   const extensiones = ['ttf', 'otf', 'woff2', 'woff'];
-  
-  // Intenta resolver la primera coincidencia que devuelva HTTP 200 OK
   return new Promise(resolve => {
     let detectada = false;
     let probadas = 0;
 
     extensiones.forEach(ext => {
-      // Intento dinámico de probing local
       const testName = `font-BebasNeue-Regular.${ext}`; 
       fetch(testName, { method: 'HEAD' })
         .then(res => {
@@ -256,7 +242,7 @@ const tiempoMinimo = new Promise(resolve => setTimeout(resolve, 1500));
 let cargarImagenFondo = Promise.resolve();
 
 // Ejecución principal
-buscarFuenteDinamicaRepo().then(fuenteCargada => {
+buscarFuenteLocalRepo().then(() => {
   return fetch('config.json')
     .then(res => res.json())
     .then(configJson => {
@@ -274,29 +260,12 @@ buscarFuenteDinamicaRepo().then(fuenteCargada => {
 
       return Promise.all([
         fetch(URL_ELEMENTS).then(res => res.json()),
-        fetch(URL_MENU).then(res => res.json()),
-        Promise.resolve(fuenteCargada)
+        fetch(URL_MENU).then(res => res.json())
       ]);
     })
-    .then(([elements, precios, localFontLoaded]) => {
+    .then(([elements, precios]) => {
       if (elements && elements.length > 0) {
         const config = elements[0];
-        
-        // Si no existe un archivo que empiece con 'font-' en el repositorio, usa la fuente de Google Fonts definida en la hoja
-        if (!localFontLoaded && config.font) {
-          const fontNameRaw = config.font.trim();
-          const fontNameClean = fontNameRaw.replace(/([a-z])([A-Z])/g, '$1 $2');
-          const fontUrlName = fontNameClean.replace(/\s+/g, '+');
-
-          const link = document.createElement('link');
-          link.rel = 'stylesheet';
-          link.href = `https://fonts.googleapis.com/css2?family=${fontUrlName}&display=swap`;
-          document.head.appendChild(link);
-
-          const style = document.createElement('style');
-          style.innerHTML = `.grupo-precio { font-family: '${fontNameClean}', sans-serif !important; }`;
-          document.head.appendChild(style);
-        }
 
         // Renderizar catálogo de precios
         const contenedor = document.getElementById('menu-contenedor');
