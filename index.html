@@ -167,152 +167,203 @@ function obtenerIdDesdeUrl(url) {
   return match ? match[1] : null;
 }
 
+// Cargar fuente local dinámica desde GitHub si existe un archivo 'font-*'
+function cargarFuenteLocalDinamica() {
+  const repoPath = window.location.pathname.split('/').filter(Boolean);
+  
+  // Si estamos en GitHub Pages, extraemos el usuario y el repositorio de la URL
+  if (window.location.hostname.includes('github.io') && repoPath.length > 0) {
+    const user = window.location.hostname.split('.')[0];
+    const repo = repoPath[0];
+    const apiUrl = `https://api.github.com/repos/${user}/${repo}/contents/`;
+
+    return fetch(apiUrl)
+      .then(res => res.json())
+      .then(files => {
+        if (Array.isArray(files)) {
+          const fontFile = files.find(f => f.name.toLowerCase().startsWith('font-'));
+          if (fontFile) {
+            return aplicarFontFace('FuenteMenuLocal', fontFile.name);
+          }
+        }
+        return false;
+      })
+      .catch(() => false);
+  } else {
+    // Si pruebas localmente, busca por defecto el nombre exacto cargado
+    return aplicarFontFace('FuenteMenuLocal', 'font-BebasNeue-Regular.ttf');
+  }
+}
+
+// Inyecta la regla @font-face y aplica la tipografía al CSS
+function aplicarFontFace(nombreFamilia, nombreArchivo) {
+  const extension = nombreArchivo.split('.').pop().toLowerCase();
+  let format = 'truetype';
+  if (extension === 'woff') format = 'woff';
+  if (extension === 'woff2') format = 'woff2';
+  if (extension === 'otf') format = 'opentype';
+
+  const style = document.createElement('style');
+  style.innerHTML = `
+    @font-face {
+      font-family: '${nombreFamilia}';
+      src: url('${nombreArchivo}') format('${format}');
+      font-weight: normal;
+      font-style: normal;
+    }
+    .grupo-precio { font-family: '${nombreFamilia}', sans-serif !important; }
+  `;
+  document.head.appendChild(style);
+  return true;
+}
+
 // Promesa de temporizador mínimo (1.5 segundos)
 const tiempoMinimo = new Promise(resolve => setTimeout(resolve, 1500));
 
 // Control de carga de la imagen de fondo
 let cargarImagenFondo = Promise.resolve();
 
-// 1. Cargar el archivo config.json
-fetch('config.json')
-  .then(res => res.json())
-  .then(configJson => {
-    const idExtraido = obtenerIdDesdeUrl(configJson.ID_SHEET);
+// Ejecución principal
+cargarFuenteLocalDinamica().then(fuenteCargada => {
+  return fetch('config.json')
+    .then(res => res.json())
+    .then(configJson => {
+      const idExtraido = obtenerIdDesdeUrl(configJson.ID_SHEET);
 
-    if (!idExtraido) {
-      throw new Error('No se pudo extraer un ID válido de la URL de Google Sheets.');
-    }
-
-    const HOJA_ELEMENTS = configJson.HOJA_ELEMENTS;
-    const HOJA_MENU = configJson.HOJA_MENU;
-
-    const URL_ELEMENTS = `https://opensheet.elk.sh/${idExtraido}/${HOJA_ELEMENTS}`;
-    const URL_MENU = `https://opensheet.elk.sh/${idExtraido}/${HOJA_MENU}`;
-
-    return Promise.all([
-      fetch(URL_ELEMENTS).then(res => res.json()),
-      fetch(URL_MENU).then(res => res.json())
-    ]);
-  })
-  .then(([elements, precios]) => {
-    if (elements && elements.length > 0) {
-      const config = elements[0];
-      
-      // Aplicar tipografía dinámica
-      if (config.font) {
-        const fontNameRaw = config.font.trim();
-        const fontNameClean = fontNameRaw.replace(/([a-z])([A-Z])/g, '$1 $2');
-        const fontUrlName = fontNameClean.replace(/\s+/g, '+');
-
-        const link = document.createElement('link');
-        link.rel = 'stylesheet';
-        link.href = `https://fonts.googleapis.com/css2?family=${fontUrlName}&display=swap`;
-        document.head.appendChild(link);
-
-        const style = document.createElement('style');
-        style.innerHTML = `.grupo-precio { font-family: '${fontNameClean}', sans-serif !important; }`;
-        document.head.appendChild(style);
+      if (!idExtraido) {
+        throw new Error('No se pudo extraer un ID válido de la URL de Google Sheets.');
       }
 
-      // Renderizar catálogo de precios
-      const contenedor = document.getElementById('menu-contenedor');
+      const HOJA_ELEMENTS = configJson.HOJA_ELEMENTS;
+      const HOJA_MENU = configJson.HOJA_MENU;
 
-      precios
-        .filter(item => item.id && String(item.id).trim() !== '')
-        .forEach(item => {
-          const divGrupo = document.createElement('div');
-          divGrupo.classList.add('grupo-precio');
+      const URL_ELEMENTS = `https://opensheet.elk.sh/${idExtraido}/${HOJA_ELEMENTS}`;
+      const URL_MENU = `https://opensheet.elk.sh/${idExtraido}/${HOJA_MENU}`;
 
-          divGrupo.style.top = item.top;
-          divGrupo.style.left = item.left;
-          divGrupo.style.transform = `translate(-50%, -50%) rotate(${item.rotate || '0deg'})`;
+      return Promise.all([
+        fetch(URL_ELEMENTS).then(res => res.json()),
+        fetch(URL_MENU).then(res => res.json()),
+        Promise.resolve(fuenteCargada)
+      ]);
+    })
+    .then(([elements, precios, localFontLoaded]) => {
+      if (elements && elements.length > 0) {
+        const config = elements[0];
+        
+        // Si no se detectó un archivo local 'font-*', se recurre a Google Fonts
+        if (!localFontLoaded && config.font) {
+          const fontNameRaw = config.font.trim();
+          const fontNameClean = fontNameRaw.replace(/([a-z])([A-Z])/g, '$1 $2');
+          const fontUrlName = fontNameClean.replace(/\s+/g, '+');
 
-          const isDisponible = String(item.disproduct).trim().toUpperCase() === 'TRUE';
+          const link = document.createElement('link');
+          link.rel = 'stylesheet';
+          link.href = `https://fonts.googleapis.com/css2?family=${fontUrlName}&display=swap`;
+          document.head.appendChild(link);
 
-          if (!isDisponible) {
-            const spanAgotado = document.createElement('span');
-            spanAgotado.classList.add('producto-agotado');
-            spanAgotado.textContent = 'AGOTADO';
-            
-            if (item["font-size-bs"]) {
-              spanAgotado.style.fontSize = item["font-size-bs"];
-            } else if (item["font-size-usd"]) {
-              spanAgotado.style.fontSize = item["font-size-usd"];
-            }
+          const style = document.createElement('style');
+          style.innerHTML = `.grupo-precio { font-family: '${fontNameClean}', sans-serif !important; }`;
+          document.head.appendChild(style);
+        }
 
-            divGrupo.appendChild(spanAgotado);
-          } else {
-            divGrupo.classList.add(`layout-${item.layout}`);
+        // Renderizar catálogo de precios
+        const contenedor = document.getElementById('menu-contenedor');
 
-            const conColor = String(item.colordivi).trim().toUpperCase() === 'TRUE';
-            if (conColor) {
-              divGrupo.classList.add('con-colordivi');
-            }
+        precios
+          .filter(item => item.id && String(item.id).trim() !== '')
+          .forEach(item => {
+            const divGrupo = document.createElement('div');
+            divGrupo.classList.add('grupo-precio');
 
-            // --- MOSTRAR PRECIO BS ---
-            const bsVisible = String(item["bs-visible"]).trim().toUpperCase() === 'TRUE';
-            if (bsVisible) {
-              const spanBs = document.createElement('span');
-              spanBs.classList.add('precio-bs');
-              spanBs.textContent = item.precio_bs;
+            divGrupo.style.top = item.top;
+            divGrupo.style.left = item.left;
+            divGrupo.style.transform = `translate(-50%, -50%) rotate(${item.rotate || '0deg'})`;
+
+            const isDisponible = String(item.disproduct).trim().toUpperCase() === 'TRUE';
+
+            if (!isDisponible) {
+              const spanAgotado = document.createElement('span');
+              spanAgotado.classList.add('producto-agotado');
+              spanAgotado.textContent = 'AGOTADO';
               
               if (item["font-size-bs"]) {
-                spanBs.style.fontSize = item["font-size-bs"];
+                spanAgotado.style.fontSize = item["font-size-bs"];
+              } else if (item["font-size-usd"]) {
+                spanAgotado.style.fontSize = item["font-size-usd"];
               }
 
-              // Aplicar color personalizado si existe en Sheets (con !important para ganar al CSS)
-              if (item["color-bs"] && String(item["color-bs"]).trim() !== '') {
-                spanBs.style.setProperty('color', String(item["color-bs"]).trim(), 'important');
+              divGrupo.appendChild(spanAgotado);
+            } else {
+              divGrupo.classList.add(`layout-${item.layout}`);
+
+              const conColor = String(item.colordivi).trim().toUpperCase() === 'TRUE';
+              if (conColor) {
+                divGrupo.classList.add('con-colordivi');
               }
 
-              divGrupo.appendChild(spanBs);
+              // --- MOSTRAR PRECIO BS ---
+              const bsVisible = String(item["bs-visible"]).trim().toUpperCase() === 'TRUE';
+              if (bsVisible) {
+                const spanBs = document.createElement('span');
+                spanBs.classList.add('precio-bs');
+                spanBs.textContent = item.precio_bs;
+                
+                if (item["font-size-bs"]) {
+                  spanBs.style.fontSize = item["font-size-bs"];
+                }
+
+                if (item["color-bs"] && String(item["color-bs"]).trim() !== '') {
+                  spanBs.style.setProperty('color', String(item["color-bs"]).trim(), 'important');
+                }
+
+                divGrupo.appendChild(spanBs);
+              }
+
+              // --- MOSTRAR PRECIO USD ---
+              const usdVisible = String(item["usd-visible"]).trim().toUpperCase() === 'TRUE';
+              if (usdVisible) {
+                const spanUsd = document.createElement('span');
+                spanUsd.classList.add('precio-usd');
+                spanUsd.textContent = item.precio_usd;
+
+                if (item["font-size-usd"]) {
+                  spanUsd.style.fontSize = item["font-size-usd"];
+                }
+
+                if (item["color-usd"] && String(item["color-usd"]).trim() !== '') {
+                  spanUsd.style.setProperty('color', String(item["color-usd"]).trim(), 'important');
+                }
+
+                divGrupo.appendChild(spanUsd);
+              }
             }
 
-            // --- MOSTRAR PRECIO USD ---
-            const usdVisible = String(item["usd-visible"]).trim().toUpperCase() === 'TRUE';
-            if (usdVisible) {
-              const spanUsd = document.createElement('span');
-              spanUsd.classList.add('precio-usd');
-              spanUsd.textContent = item.precio_usd;
+            contenedor.appendChild(divGrupo);
+          });
 
-              if (item["font-size-usd"]) {
-                spanUsd.style.fontSize = item["font-size-usd"];
-              }
-
-              // Aplicar color personalizado si existe en Sheets (con !important para ganar al CSS)
-              if (item["color-usd"] && String(item["color-usd"]).trim() !== '') {
-                spanUsd.style.setProperty('color', String(item["color-usd"]).trim(), 'important');
-              }
-
-              divGrupo.appendChild(spanUsd);
-            }
-          }
-
-          contenedor.appendChild(divGrupo);
-        });
-
-      // Cargar imagen de fondo
-      if (config['id-background-menu']) {
-        const imgMenu = document.getElementById('menu-img');
-        cargarImagenFondo = new Promise(resolve => {
-          imgMenu.onload = resolve;
-          imgMenu.onerror = resolve;
-          imgMenu.src = config['id-background-menu'];
-        });
+        // Cargar imagen de fondo
+        if (config['id-background-menu']) {
+          const imgMenu = document.getElementById('menu-img');
+          cargarImagenFondo = new Promise(resolve => {
+            imgMenu.onload = resolve;
+            imgMenu.onerror = resolve;
+            imgMenu.src = config['id-background-menu'];
+          });
+        }
       }
-    }
 
-    return Promise.all([tiempoMinimo, cargarImagenFondo]);
-  })
-  .then(() => {
-    document.getElementById('pantalla-carga').classList.add('oculto');
-    document.getElementById('menu-contenedor').classList.add('visible');
-  })
-  .catch(error => {
-    console.error('Error durante la ejecución:', error);
-    document.getElementById('pantalla-carga').classList.add('oculto');
-    document.getElementById('menu-contenedor').classList.add('visible');
-  });
+      return Promise.all([tiempoMinimo, cargarImagenFondo]);
+    })
+    .then(() => {
+      document.getElementById('pantalla-carga').classList.add('oculto');
+      document.getElementById('menu-contenedor').classList.add('visible');
+    })
+    .catch(error => {
+      console.error('Error durante la ejecución:', error);
+      document.getElementById('pantalla-carga').classList.add('oculto');
+      document.getElementById('menu-contenedor').classList.add('visible');
+    });
+});
 </script>
 
 </body>
